@@ -11,7 +11,16 @@ import (
 	"image"
 	_ "image/png"
 	"golang.org/x/image/colornames"
+	"strings"
+	"bufio"
+	"io/ioutil"
+	"encoding/json"
 )
+
+type config struct {
+	breakThresh int32 `json:"breakThresh"`
+	defaultVsync bool `json:"defaultVsync"`
+}
 
 type ItemStack struct {
 	amnt int8
@@ -23,10 +32,10 @@ type playerPos struct {
 }
 type Block struct {
 	btype int32
-	breakStage int16
+	breakStage int32
 }
 
-func placeBlock(x int16, y int16, tilePos *[20][20]Block, blockType int32) {
+func placeBlock(x int16, y int16, tilePos *[21][21]Block, blockType int32) {
 	ok := true
 	if x>19 {
 		ok=false
@@ -45,7 +54,7 @@ func placeBlock(x int16, y int16, tilePos *[20][20]Block, blockType int32) {
 	}
 }
 
-func moveCheck(x int16, y int16, tilePos [20][20]Block) (ok bool) {
+func moveCheck(x int16, y int16, tilePos [21][21]Block) (ok bool) {
 	if x>19 {
 		return false
 	}
@@ -64,22 +73,28 @@ func moveCheck(x int16, y int16, tilePos [20][20]Block) (ok bool) {
 	return true
 }
 
-func deleteBrokenBlocks(tilePos *[20][20]Block) {
+func deleteBrokenBlocks(tilePos *[21][21]Block, breakThresh int32) {
 	for y := 0; y < 20; y++ {
 		for x := 0; x < 20; x++ {
-			if tilePos[x][y].breakStage == 100 {
+			if tilePos[x][y].breakStage == breakThresh {
 				tilePos[x][y].btype = 0
+				tilePos[x][y].breakStage = 0
 			}
 		}
 	}
+	//fmt.Println(tilePos)
 }
 
-func LoadPicture(path string) (pixel.Picture, error) {
+func GetExecPath() string {
 	ex, err := os.Executable()
     if err != nil {
         panic(err)
     }
-	curPath := filepath.Dir(ex)
+    return filepath.Dir(ex)
+}
+
+func LoadPicture(path string) (pixel.Picture, error) {
+	curPath := GetExecPath()
 	path = curPath+"/assets/"+path
 	file, err := os.Open(path)
 	if err != nil {
@@ -93,11 +108,45 @@ func LoadPicture(path string) (pixel.Picture, error) {
 	return pixel.PictureDataFromImage(img), nil
 }
 
+func loadConfig(filename string) (config, error) {
+	bytes, err := ioutil.ReadFile(filename)
+	if err != nil {
+		return config{}, err
+	}
+
+	var c config
+	err = json.Unmarshal(bytes, &c)
+	if err != nil {
+		return config{}, err
+	}
+
+	return c, nil
+}
+
 func run() {
+
+	loadedConfig, err := loadConfig(GetExecPath()+"/config.json")
+	if err != nil {
+		panic(err)
+	}
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Print("VSync on?(y/n)")
+	ans, _ := reader.ReadString('\n')
+	ans = strings.Replace(ans, "\n", "", -1)
+	sync := loadedConfig.defaultVsync
+	if ans=="n" {
+		sync = false
+	}
+	if ans=="y" {
+		sync = true
+	}
+
+
+
 	cfg := pixelgl.WindowConfig{ //the settings for the window
 		Title:  "Online Game",
 		Bounds: pixel.R(0, 0, 640, 704),
-		VSync:  true,
+		VSync:  sync,
 	}
 
 	win, err := pixelgl.NewWindow(cfg)
@@ -125,10 +174,11 @@ func run() {
 		frames int = 0
 		second = time.Tick(time.Second)
 		selSlot int8
-		tilePos [20][20]Block
+		tilePos [21][21]Block
 		randAngles = [4]float64{0, 1.5708, 3.14159, 4.71239}
-		//inv [52]ItemStack
+		inv [52]ItemStack
 	)
+	inv[2] = ItemStack{3, 1}
 	rand.Seed(time.Now().UnixNano())
 
 	grasses.Clear()
@@ -146,16 +196,16 @@ func run() {
 			if win.Pressed(pixelgl.KeyLeftShift)&&tilePos[player.x][player.y+1].btype==0 {
 				placeBlock(player.x, player.y+1, &tilePos, 1)
 			} else {
-				if !(tilePos[player.x][player.y+1].btype==0) {
+				if !win.Pressed(pixelgl.KeyLeftShift)&&tilePos[player.x][player.y+1].btype!=0 {
 					tilePos[player.x][player.y+1].breakStage++
 				}
 			}
 		}
-		if win.Pressed(pixelgl.KeyDown) {
+		if win.Pressed(pixelgl.KeyDown)&&player.y!=0 {
 			if win.Pressed(pixelgl.KeyLeftShift)&&tilePos[player.x][player.y-1].btype==0 {
 				placeBlock(player.x, player.y-1, &tilePos, 1)
 			} else {
-				if !(tilePos[player.x][player.y-1].btype==0) {
+				if !win.Pressed(pixelgl.KeyLeftShift)&&tilePos[player.x][player.y-1].btype!=0 {
 					tilePos[player.x][player.y-1].breakStage++
 				}
 			}
@@ -164,22 +214,22 @@ func run() {
 			if win.Pressed(pixelgl.KeyLeftShift)&&tilePos[player.x+1][player.y].btype==0 {
 				placeBlock(player.x+1, player.y, &tilePos, 1)
 			} else {
-				if !(tilePos[player.x+1][player.y].btype==0) {
+				if !win.Pressed(pixelgl.KeyLeftShift)&&tilePos[player.x+1][player.y].btype!=0 {
 					tilePos[player.x+1][player.y].breakStage++
 				}
 			}
 		}
-		if win.Pressed(pixelgl.KeyLeft) {
+		if win.Pressed(pixelgl.KeyLeft)&&player.x!=0 {
 			if win.Pressed(pixelgl.KeyLeftShift)&&tilePos[player.x-1][player.y].btype==0 {
 				placeBlock(player.x-1, player.y, &tilePos, 1)
 			} else {
-				if !(tilePos[player.x-1][player.y].btype==0) {
+				if !win.Pressed(pixelgl.KeyLeftShift)&&tilePos[player.x-1][player.y].btype!=0 {
 					tilePos[player.x-1][player.y].breakStage++
 				}
 			}
 		}
 
-		deleteBrokenBlocks(&tilePos)
+		deleteBrokenBlocks(&tilePos, 100)
 		//selecting slots
 		if win.JustPressed(pixelgl.Key1) {
 			selSlot = 0
