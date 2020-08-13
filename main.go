@@ -15,6 +15,8 @@ import (
 	//"bufio"
 	"io/ioutil"
 	"encoding/json"
+	"unicode"
+	"strconv"
 )
 
 type config struct {
@@ -72,15 +74,34 @@ func moveCheck(x int16, y int16, tilePos [21][21]Block) (ok bool) {
 }
 
 func GiveItem(inv *[10]ItemStack, ite ItemStack) {
-	inv[0].itype = ite.itype
-	inv[0].amnt+=ite.amnt
+	iltd:=ite.amnt
+	for i := 0; i < 10; i++ { 
+		if inv[i].itype==ite.itype {
+			inv[i].itype=ite.itype
+			for iltd!=0&&inv[i].amnt<85 {
+				inv[i].amnt+=1
+				iltd-=1
+			}
+		}
+	}
+	for i := 0; i < 10; i++ {
+		if inv[i].itype==ite.itype||inv[i].itype==0 {
+			if inv[i].amnt<85&&iltd>0 {
+				inv[i].itype=ite.itype
+				for iltd!=0&&inv[i].amnt<85 {
+					inv[i].amnt+=1
+					iltd-=1
+				}
+			}
+		}
+	}
 }
 
 func deleteBrokenBlocks(tilePos *[21][21]Block, inv [10]ItemStack, breakThresh int32) ([10]ItemStack) {
 	for y := 0; y < 20; y++ {
 		for x := 0; x < 20; x++ {
-			if tilePos[x][y].breakStage == breakThresh {	
-				GiveItem(&inv, ItemStack{1, 1})
+			if tilePos[x][y].breakStage >= breakThresh {	
+				GiveItem(&inv, ItemStack{1, tilePos[x][y].btype})
 				tilePos[x][y].btype = 0
 				tilePos[x][y].breakStage = 0
 			}
@@ -149,7 +170,7 @@ func run() {
 	cfg := pixelgl.WindowConfig{ //the settings for the window
 		Title:  "Texxit",
 		Bounds: pixel.R(0, 0, 640, 704),
-		VSync:  false,
+		VSync:  true,
 	}
 
 	win, err := pixelgl.NewWindow(cfg)
@@ -189,6 +210,7 @@ func run() {
 		holdWASD [4]int16
 		grassRotSeed = time.Now().UnixNano()
 	)
+	inv[0] = ItemStack{83, 1}
 	inv[1] = ItemStack{3, 1}
 	inv[4] = ItemStack{85, 1}
 	tilePos[5][5] = Block{1, 99}
@@ -199,26 +221,25 @@ func run() {
 		//BEGIN CONTROLS
 		//placing/mining bloks
 		if win.Pressed(pixelgl.KeyUp) {
-			if win.Pressed(pixelgl.KeyLeftShift) {
+			if win.Pressed(pixelgl.KeyLeftShift)&&tilePos[player.x][player.y+1].btype==0 {
 				placeBlock(player.x, player.y+1, &tilePos, &inv, selSlot)
 			} else {
-				if !win.Pressed(pixelgl.KeyLeftShift) {
+				if !win.Pressed(pixelgl.KeyLeftShift)&&tilePos[player.x][player.y+1].btype!=0 {
 					tilePos[player.x][player.y+1].breakStage++
 				}
 			}
 		}
 		if win.Pressed(pixelgl.KeyDown)&&player.y!=0 {
-			if win.Pressed(pixelgl.KeyLeftShift) {
+			if win.Pressed(pixelgl.KeyLeftShift)&&tilePos[player.x][player.y-1].btype==0 {
 				placeBlock(player.x, player.y-1, &tilePos, &inv, selSlot)
 			} else {
-				if !win.Pressed(pixelgl.KeyLeftShift) {
+				if !win.Pressed(pixelgl.KeyLeftShift)&&tilePos[player.x][player.y-1].btype!=0 {
 					tilePos[player.x][player.y-1].breakStage++
 				}
 			}
 		}
 		if win.Pressed(pixelgl.KeyRight) {
 			if win.Pressed(pixelgl.KeyLeftShift)&&tilePos[player.x+1][player.y].btype==0 {
-				fmt.Println()
 				placeBlock(player.x+1, player.y, &tilePos, &inv, selSlot)
 			} else {
 				if !win.Pressed(pixelgl.KeyLeftShift)&&tilePos[player.x+1][player.y].btype!=0 {
@@ -236,37 +257,15 @@ func run() {
 			}
 		}
 
-		inv = deleteBrokenBlocks(&tilePos, inv, 100)
+		inv = deleteBrokenBlocks(&tilePos, inv, 1)
 		//selecting slots
-		if win.JustPressed(pixelgl.Key1) {
-			selSlot = 0
-		}
-		if win.JustPressed(pixelgl.Key2) {
-			selSlot = 1
-		}
-		if win.JustPressed(pixelgl.Key3) {
-			selSlot = 2
-		}
-		if win.JustPressed(pixelgl.Key4) {
-			selSlot = 3
-		}
-		if win.JustPressed(pixelgl.Key5) {
-			selSlot = 4
-		}
-		if win.JustPressed(pixelgl.Key6) {
-			selSlot = 5
-		}
-		if win.JustPressed(pixelgl.Key7) {
-			selSlot = 6
-		}
-		if win.JustPressed(pixelgl.Key8) {
-			selSlot = 7
-		}
-		if win.JustPressed(pixelgl.Key9) {
-			selSlot = 8
-		}
-		if win.JustPressed(pixelgl.Key0) {
-			selSlot = 9
+		x := win.Typed()
+		if len(x)!=0 {
+			x = x[len(x)-1:]
+			if unicode.IsDigit([]rune(x)[0]) {
+				i , _ := strconv.Atoi(x) 
+				selSlot = int8(i-1)
+			}
 		}
 		//moving
 		//up
@@ -371,7 +370,7 @@ func run() {
 		}
 		
 
-		for i := 0; i < 9; i++ {
+		for i := 0; i < 10; i++ {
 			switch inv[i].itype {
 			case 0:
 			case 1:
@@ -449,6 +448,7 @@ func run() {
 			}
 		}
 		draw.Draw(win)
+		win.Update()
 		//END RENDERING
 		frames++ //Fps displaying stuff
 		select {
