@@ -263,8 +263,16 @@ func run() {
 		if len(x)!=0 {
 			x = x[len(x)-1:]
 			if unicode.IsDigit([]rune(x)[0]) {
-				i , _ := strconv.Atoi(x) 
-				selSlot = int8(i-1)
+				i , _ := strconv.Atoi(x)
+				if !win.Pressed(pixelgl.KeySpace) {
+					i , _ := strconv.Atoi(x) 
+					selSlot = int8(i-1)
+				} else {
+					x:=inv[i-1]
+					y:=inv[selSlot]
+					inv[selSlot] = x
+					inv[i-1] = y
+				}
 			}
 		}
 		//moving
