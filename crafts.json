@@ -1,0 +1,20 @@
+{
+	"crafts":[
+		{
+			"reqs":[
+				{"amnt":1,"itype":2}
+			],
+			"result":
+				{"amnt":4,"itype":1}
+		},
+		{
+			"reqs":[
+				{"amnt":1,"itype":1},
+				{"amnt":2,"itype":3}
+			],
+			"result":
+				{"amnt":3,"itype":2}
+		}
+
+	]
+}

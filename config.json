@@ -1,4 +1,5 @@
 {
-	"breakThresh":100,
-	"defaultVsync":true
+	"breakThresh":50,
+	"walkThresh":20,
+	"walkSpeed":5
 }

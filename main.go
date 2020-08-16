@@ -11,50 +11,34 @@ import (
 	"image"
 	_ "image/png"
 	"golang.org/x/image/colornames"
-	//"strings"
-	//"bufio"
-	"io/ioutil"
-	"encoding/json"
 	"unicode"
-	"strconv"
+	//"strconv"
+	"./lib"
+	"flag"
 )
-
-type config struct {
-	breakThresh int32 `json:"breakThresh"`
-	defaultVsync bool `json:"defaultVsync"`
-}
-
-type ItemStack struct {
-	amnt int8
-	itype int32
-}
 
 type playerPos struct {
 	x, y int16
 }
-type Block struct {
-	btype int32
-	breakStage int32
-}
 
-func placeBlock(x int16, y int16, tilePos *[21][21]Block, inv *[10]ItemStack, selSlot int8) {
+func placeBlock(x int16, y int16, tilePos *[21][21]lib.Block, inv *[10]lib.ItemStack, selSlot int8) {
 	ok := true
 	if x>19 || x<0 || y>19 || y<0 {
 		ok=false
 	}
-	if tilePos[x][y].btype>0 {
+	if tilePos[x][y].Btype>0 {
 		ok=false
 	}
-	if inv[selSlot].itype==0&&inv[selSlot].amnt==0 {
+	if inv[selSlot].Itype==0&&inv[selSlot].Amnt==0 {
 		ok=false
 	}
 	if ok {
-		tilePos[x][y].btype = inv[selSlot].itype
-		inv[selSlot].amnt--
+		tilePos[x][y].Btype = inv[selSlot].Itype
+		inv[selSlot].Amnt--
 	}
 }
 
-func moveCheck(x int16, y int16, tilePos [21][21]Block) (ok bool) {
+func moveCheck(x int16, y int16, tilePos [21][21]lib.Block) (ok bool) {
 	if x>19 {
 		return false
 	}
@@ -67,43 +51,21 @@ func moveCheck(x int16, y int16, tilePos [21][21]Block) (ok bool) {
 	if y<0 {
 		return false
 	}
-	if tilePos[x][y].btype>0 {
+	if tilePos[x][y].Btype>0 {
 		return false
 	}
 	return true
 }
 
-func GiveItem(inv *[10]ItemStack, ite ItemStack) {
-	iltd:=ite.amnt
-	for i := 0; i < 10; i++ { 
-		if inv[i].itype==ite.itype {
-			inv[i].itype=ite.itype
-			for iltd!=0&&inv[i].amnt<85 {
-				inv[i].amnt+=1
-				iltd-=1
-			}
-		}
-	}
-	for i := 0; i < 10; i++ {
-		if inv[i].itype==ite.itype||inv[i].itype==0 {
-			if inv[i].amnt<85&&iltd>0 {
-				inv[i].itype=ite.itype
-				for iltd!=0&&inv[i].amnt<85 {
-					inv[i].amnt+=1
-					iltd-=1
-				}
-			}
-		}
-	}
-}
 
-func deleteBrokenBlocks(tilePos *[21][21]Block, inv [10]ItemStack, breakThresh int32) ([10]ItemStack) {
+
+func deleteBrokenBlocks(tilePos *[21][21]lib.Block, inv [10]lib.ItemStack, breakThresh int32) ([10]lib.ItemStack) {
 	for y := 0; y < 20; y++ {
 		for x := 0; x < 20; x++ {
-			if tilePos[x][y].breakStage >= breakThresh {	
-				GiveItem(&inv, ItemStack{1, tilePos[x][y].btype})
-				tilePos[x][y].btype = 0
-				tilePos[x][y].breakStage = 0
+			if tilePos[x][y].BreakStage >= breakThresh {	
+				lib.GiveItem(&inv, lib.IS(1, tilePos[x][y].Btype))
+				tilePos[x][y].Btype = 0
+				tilePos[x][y].BreakStage = 0
 			}
 		}
 	}
@@ -133,39 +95,19 @@ func LoadPicture(path string) (pixel.Picture, error) {
 	return pixel.PictureDataFromImage(img), nil
 }
 
-func loadConfig(filename string) (config, error) {
-	bytes, err := ioutil.ReadFile(filename)
-	if err != nil {
-		return config{}, err
-	}
-
-	var c config
-	err = json.Unmarshal(bytes, &c)
-	if err != nil {
-		return config{}, err
-	}
-
-	return c, nil
-}
-
 func run() {
 
-	/*loadedConfig, err := loadConfig(GetExecPath()+"/config.json")
-	if err != nil {
-		panic(err)
-	}
-
-	/*reader := bufio.NewReader(os.Stdin)
-	fmt.Print("VSync on?(y/n)")
-	ans, _ := reader.ReadString('\n')
-	ans = strings.Replace(ans, "\n", "", -1)
-	sync := loadedConfig.defaultVsync
-	if ans=="n" {
-		sync = false
-	}
-	if ans=="y" {
-		sync = true
-	}*/
+	config := lib.ReadJson("config.json")
+	bt:=int(config.BreakThresh)
+	wt:=int(config.WalkThresh)
+	ws:=int(config.WalkSpeed)
+	flag.IntVar(&bt, "bt", bt, "How many frames it takes to break blocks")
+	flag.IntVar(&wt, "wt", wt, "How long you have to hold WASD until you move faster in frames")
+	flag.IntVar(&ws, "ws", ws, "How many frames between walking (after WalkThresh been surpased)")
+	flag.Parse()
+	config.BreakThresh = int32(bt)
+	config.WalkThresh = int16(wt)
+	config.WalkSpeed = int16(ws)
 
 	cfg := pixelgl.WindowConfig{ //the settings for the window
 		Title:  "Texxit",
@@ -183,37 +125,52 @@ func run() {
 		panic(err)
 	}
 	//make the graphics batches and sprites and stuff
-	num0 := pixel.NewSprite(asset, pixel.R(0, 16, 16, 32))
-	num1 := pixel.NewSprite(asset, pixel.R(16, 16, 32, 32))
-	num2 := pixel.NewSprite(asset, pixel.R(32, 16, 48, 32))
-	num3 := pixel.NewSprite(asset, pixel.R(48, 16, 64, 32))
-	num4 := pixel.NewSprite(asset, pixel.R(64, 16, 80, 32))
-	num5 := pixel.NewSprite(asset, pixel.R(80, 16, 96, 32))
-	num6 := pixel.NewSprite(asset, pixel.R(96, 16, 112, 32))
-	num7 := pixel.NewSprite(asset, pixel.R(112, 16, 128, 32))
-	num8 := pixel.NewSprite(asset, pixel.R(0, 32, 16, 48))
-	num9 := pixel.NewSprite(asset, pixel.R(16, 32, 32, 48))
+	var pixs [8][8]*pixel.Sprite
+	for x := 0; x < 8; x++ {
+		for y := 0; y < 8; y++ {
+			pixs[x][y] = pixel.NewSprite(asset, pixel.R(float64(x*16), float64(y*16), float64(x*16)+16, float64(y*16)+16))
+		}
+	}
 
-	woodSpr := pixel.NewSprite(asset, pixel.R(0, 0, 16, 16))
-	youSpr := pixel.NewSprite(asset, pixel.R(16, 0, 32, 16))
-	invSpr := pixel.NewSprite(asset, pixel.R(32, 0, 48, 16))
-	grassSpr := pixel.NewSprite(asset, pixel.R(48, 0, 64, 16))
+	numSpr[0] := pixs[0][1]
+	numSpr[1] := pixs[1][1]
+	numSpr[2] := pixs[2][1]
+	numSpr[1] := pixs[3][1]
+	numSpr[1] := pixs[4][1]
+	numSpr[1] := pixs[5][1]
+	numSpr[1] := pixs[6][1]
+	numSpr[1] := pixs[7][1]
+	numSpr[1] := pixs[0][2]
+	numSpr[1] := pixs[1][2]
+	youSpr := pixs[1][0]
+	invSpr := pixs[2][0]
+	//guiSpr := pixel.NewSprite(asset, pixel.R(32, 32, 56, 48))
+	//arrowSpr := pixel.NewSprite(asset, pixel.R(56, 32, 64, 48))
+
+	var opics [100]*pixel.Sprite
+	opics[0] = pixs[3][0]
+	opics[1] = pixs[0][0]
+	opics[2] = pixs[5][0]
+	opics[3] = pixs[4][0]
+
 	draw := pixel.NewBatch(&pixel.TrianglesData{}, asset)
 	var (
-		player = playerPos{10, 10}
+		player = playerPos{9, 9}
 		frames int16 = 0
 		second = time.Tick(time.Second)
 		selSlot int8
-		tilePos [21][21]Block
-		randAngles = [4]float64{0, 1.5708, 3.14159, 4.71239}
-		inv [10]ItemStack
+		tilePos [21][21]lib.Block
+		//randAngles = [4]float64{0, 1.5708, 3.14159, 4.71239}
+		inv [10]lib.ItemStack
 		holdWASD [4]int16
-		grassRotSeed = time.Now().UnixNano()
+		//grassRotSeed = time.Now().UnixNano()
+		gui int16 = 0
 	)
-	inv[0] = ItemStack{83, 1}
-	inv[1] = ItemStack{3, 1}
-	inv[4] = ItemStack{85, 1}
-	tilePos[5][5] = Block{1, 99}
+	lib.Gen(&tilePos)
+	if tilePos[player.x][player.y].Btype>0{
+		player = playerPos{10, 10}
+	}
+	//tilePos[5][5] = Block{2, 49}
 	rand.Seed(time.Now().UnixNano())
 
 	draw.Clear()
@@ -221,60 +178,145 @@ func run() {
 		//BEGIN CONTROLS
 		//placing/mining bloks
 		if win.Pressed(pixelgl.KeyUp) {
-			if win.Pressed(pixelgl.KeyLeftShift)&&tilePos[player.x][player.y+1].btype==0 {
+			if win.Pressed(pixelgl.KeyLeftShift)&&tilePos[player.x][player.y+1].Btype==0 {
 				placeBlock(player.x, player.y+1, &tilePos, &inv, selSlot)
 			} else {
-				if !win.Pressed(pixelgl.KeyLeftShift)&&tilePos[player.x][player.y+1].btype!=0 {
-					tilePos[player.x][player.y+1].breakStage++
+				if !win.Pressed(pixelgl.KeyLeftShift)&&tilePos[player.x][player.y+1].Btype!=0 {
+					tilePos[player.x][player.y+1].BreakStage++
 				}
 			}
 		}
 		if win.Pressed(pixelgl.KeyDown)&&player.y!=0 {
-			if win.Pressed(pixelgl.KeyLeftShift)&&tilePos[player.x][player.y-1].btype==0 {
+			if win.Pressed(pixelgl.KeyLeftShift)&&tilePos[player.x][player.y-1].Btype==0 {
 				placeBlock(player.x, player.y-1, &tilePos, &inv, selSlot)
 			} else {
-				if !win.Pressed(pixelgl.KeyLeftShift)&&tilePos[player.x][player.y-1].btype!=0 {
-					tilePos[player.x][player.y-1].breakStage++
+				if !win.Pressed(pixelgl.KeyLeftShift)&&tilePos[player.x][player.y-1].Btype!=0 {
+					tilePos[player.x][player.y-1].BreakStage++
 				}
 			}
 		}
 		if win.Pressed(pixelgl.KeyRight) {
-			if win.Pressed(pixelgl.KeyLeftShift)&&tilePos[player.x+1][player.y].btype==0 {
+			if win.Pressed(pixelgl.KeyLeftShift)&&tilePos[player.x+1][player.y].Btype==0 {
 				placeBlock(player.x+1, player.y, &tilePos, &inv, selSlot)
 			} else {
-				if !win.Pressed(pixelgl.KeyLeftShift)&&tilePos[player.x+1][player.y].btype!=0 {
-					tilePos[player.x+1][player.y].breakStage++
+				if !win.Pressed(pixelgl.KeyLeftShift)&&tilePos[player.x+1][player.y].Btype!=0 {
+					tilePos[player.x+1][player.y].BreakStage++
 				}
 			}
 		}
 		if win.Pressed(pixelgl.KeyLeft)&&player.x!=0 {
-			if win.Pressed(pixelgl.KeyLeftShift)&&tilePos[player.x-1][player.y].btype==0 {
+			if win.Pressed(pixelgl.KeyLeftShift)&&tilePos[player.x-1][player.y].Btype==0 {
 				placeBlock(player.x-1, player.y, &tilePos, &inv, selSlot)
 			} else {
-				if !win.Pressed(pixelgl.KeyLeftShift)&&tilePos[player.x-1][player.y].btype!=0 {
-					tilePos[player.x-1][player.y].breakStage++
+				if !win.Pressed(pixelgl.KeyLeftShift)&&tilePos[player.x-1][player.y].Btype!=0 {
+					tilePos[player.x-1][player.y].BreakStage++
 				}
 			}
 		}
 
-		inv = deleteBrokenBlocks(&tilePos, inv, 1)
+		inv = deleteBrokenBlocks(&tilePos, inv, config.BreakThresh)
 		//selecting slots
 		x := win.Typed()
 		if len(x)!=0 {
-			x = x[len(x)-1:]
+			ok:=false
+			var xnum int
 			if unicode.IsDigit([]rune(x)[0]) {
-				i , _ := strconv.Atoi(x)
-				if !win.Pressed(pixelgl.KeySpace) {
-					i , _ := strconv.Atoi(x) 
-					selSlot = int8(i-1)
+				ok = true
+			}
+			for i := 0; i < 5; i++ {
+				if len(x)>i+1 {
+					if unicode.IsDigit([]rune(x)[i+1]) {
+						ok = true
+						xnum = i+1
+					}
+				}
+			}
+			if ok {
+				i := int(x[xnum])-48
+				if err!=nil {
+					panic(err)
+				}
+				if i==0 {
+					i=10
+				}
+				i--
+				if !win.Pressed(pixelgl.KeySpace) { 
+					selSlot = int8(i)
 				} else {
-					x:=inv[i-1]
+					x:=inv[i]
 					y:=inv[selSlot]
 					inv[selSlot] = x
-					inv[i-1] = y
+					inv[i] = y
 				}
 			}
 		}
+
+		if win.Pressed(pixelgl.KeySpace)&&win.Pressed(pixelgl.KeyLeftShift) {
+			var x rune
+			if len(win.Typed())!=0 {
+				x=rune(win.Typed()[0])
+			}
+			var i int
+			switch x {
+			case 32:
+				i=-1
+			case 33:
+				i=0
+			case 64:
+				i=1
+			case 35:
+				i=2
+			case 36:
+				i=3
+			case 37:
+				i=4
+			case 94:
+				i=5
+			case 38:
+				i=6
+			case 42:
+				i=7
+			case 40:
+				i=8
+			case 41:
+				i=9
+			default:
+				i=-1
+			}
+			if i!=-1 {
+				if inv[i].Itype==inv[selSlot].Itype||inv[i].Itype==0 {
+					x:=inv[selSlot].Amnt/2
+					if inv[i].Itype==0 {
+						inv[i].Itype = inv[selSlot].Itype
+					}
+					for x>0 {
+						x--
+						inv[selSlot].Amnt--
+						inv[i].Amnt++
+						if inv[i].Amnt>85 {
+							break
+						}
+					}
+					if inv[i].Amnt==0 {
+						inv[i].Itype = 0
+					}
+				}
+			}
+		}
+
+
+		if win.JustPressed(pixelgl.KeyK)&&win.Pressed(pixelgl.KeyY)&&win.Pressed(pixelgl.KeyP)&&win.Pressed(pixelgl.KeyG) {
+			lib.GiveItem(&inv, lib.IS(83, 1))
+		}
+
+
+		//managine inventory items
+		if win.Pressed(pixelgl.KeyQ)&&win.Pressed(pixelgl.KeySpace) {
+			x:=inv[selSlot]
+			inv[selSlot]=lib.IS(0,0)
+			lib.GiveItem(&inv, x)
+		}
+
 		//moving
 		//up
 		if win.JustPressed(pixelgl.KeyW) {
@@ -283,10 +325,10 @@ func run() {
 			}
 		}
 		if win.Pressed(pixelgl.KeyW) {
-			if holdWASD[0]!=30 {
+			if holdWASD[0]!=config.WalkThresh {
 				holdWASD[0]++
 			} else {
-				holdWASD[0]-=5
+				holdWASD[0]-=config.WalkSpeed
 				if moveCheck(player.x, player.y+1, tilePos) {
 					player.y++
 				}
@@ -301,10 +343,10 @@ func run() {
 			}
 		}
 		if win.Pressed(pixelgl.KeyA) {
-			if holdWASD[1]!=20 {
+			if holdWASD[1]!=config.WalkThresh {
 				holdWASD[1]++
 			} else {
-				holdWASD[1]-=5
+				holdWASD[1]-=config.WalkSpeed
 				if moveCheck(player.x-1, player.y, tilePos) {
 				player.x--
 			}
@@ -319,10 +361,10 @@ func run() {
 			}
 		}
 		if win.Pressed(pixelgl.KeyS) {
-			if holdWASD[2]!=20 {
+			if holdWASD[2]!=config.WalkThresh {
 				holdWASD[2]++
 			} else {
-				holdWASD[2]-=5
+				holdWASD[2]-=config.WalkSpeed
 				if moveCheck(player.x, player.y-1, tilePos) {
 					player.y--
 				}
@@ -337,10 +379,10 @@ func run() {
 			}
 		}
 		if win.Pressed(pixelgl.KeyD) {
-			if holdWASD[3]!=20 {
+			if holdWASD[3]!=config.WalkThresh {
 				holdWASD[3]++
 			} else {
-				holdWASD[3]-=5
+				holdWASD[3]-=config.WalkSpeed
 				if moveCheck(player.x+1, player.y, tilePos) {
 					player.x++
 				}
@@ -348,23 +390,25 @@ func run() {
 		} else {
 			holdWASD[3] = 0
 		}
+
+		//crafting
+		if win.JustPressed(pixelgl.KeyC) {
+			if gui==0 {
+				gui = 1
+			} else {
+				gui = 0
+			}
+		}
+
 		//END CONTROLS
 		//BEGIN RENDERING
 		win.Clear(colornames.Forestgreen)
 		draw.Clear()
 
-		rand.Seed(grassRotSeed)
-		for x := 16; x != 656; x += 32 {
-			for y := 80; y != 720; y += 32 {
-				grassSpr.Draw(draw, pixel.IM.Moved(pixel.V(float64(x), float64(y))).ScaledXY(pixel.V(float64(x), float64(y)), pixel.V(2, 2)).Rotated(pixel.V(float64(x), float64(y)), randAngles[rand.Intn(3)]))
-			}
-		}
-
 		for x := 0; x != 20; x++ {
 			for y := 0; y != 20; y++ {
-				if tilePos[x][y].btype>0 {
-					woodSpr.Draw(draw, pixel.IM.Moved(pixel.V(float64(x*32)+8, float64(y*32)+40)).ScaledXY(pixel.V(float64(x*32), float64(y*32)), pixel.V(2, 2)))
-				}
+				move:=pixel.IM.Moved(pixel.V(float64(x*32)+8, float64(y*32)+40)).ScaledXY(pixel.V(float64(x*32), float64(y*32)), pixel.V(2, 2))
+				opics[tilePos[x][y].Btype].Draw(draw, move)
 			}
 		}
 		youSpr.Draw(draw, pixel.IM.Moved(pixel.V(float64(player.x*16)+8, float64(player.y*16)+40)).ScaledXY(pixel.V(1, 1), pixel.V(2, 2)))
@@ -379,82 +423,88 @@ func run() {
 		
 
 		for i := 0; i < 10; i++ {
-			switch inv[i].itype {
-			case 0:
-			case 1:
-				woodSpr.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+32), 32)).ScaledXY(pixel.V(float64((i*64)+32), 32), pixel.V(2.25, 2.25)))
-				if inv[i].amnt<10 {
-					switch inv[i].amnt {
-					case 0:
-						inv[i].itype = 0
-					case 1:
-					case 2:
-						num2.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+50), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
-					case 3:
-						num3.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+50), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
-					case 4:
-						num4.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+50), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
-					case 5:
-						num5.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+50), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
-					case 6:
-						num6.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+50), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
-					case 7:
-						num7.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+50), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
-					case 8:
-						num8.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+50), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
-					case 9:
-						num9.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+50), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
-					}
-				} else { // number i bigger then 10 
-					switch inv[i].amnt / 10 { //most signigf=iashudant digits
-					case 0:
-						num0.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+44), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
-					case 1:
-						num1.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+44), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
-					case 2:
-						num2.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+44), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
-					case 3:
-						num3.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+44), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
-					case 4:
-						num4.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+44), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
-					case 5:
-						num5.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+44), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
-					case 6:
-						num6.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+44), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
-					case 7:
-						num7.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+44), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
-					case 8:
-						num8.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+44), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
-					case 9:
-						num9.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+44), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
-					}
-
-					switch inv[i].amnt % 10  { // least signifiicant digits
-					case 0:
-						num0.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+56), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
-					case 1:
-						num1.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+56), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
-					case 2:
-						num2.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+56), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
-					case 3:
-						num3.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+56), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
-					case 4:
-						num4.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+56), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
-					case 5:
-						num5.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+56), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
-					case 6:
-						num6.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+56), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
-					case 7:
-						num7.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+56), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
-					case 8:
-						num8.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+56), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
-					case 9:
-						num9.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+56), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
-					}
+			move:=pixel.IM.Moved(pixel.V(float64((i*64)+32), 32)).ScaledXY(pixel.V(float64((i*64)+32), 32), pixel.V(2.25, 2.25))
+			if inv[i].Itype!=0 {
+				opics[inv[i].Itype].Draw(draw, move)
+			}
+			if inv[i].Amnt<10 {
+				switch inv[i].Amnt {
+				case 0:
+					inv[i].Itype = 0
+				case 1:
+				case 2:
+					num2.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+50), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
+				case 3:
+					num3.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+50), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
+				case 4:
+					num4.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+50), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
+				case 5:
+					num5.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+50), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
+				case 6:
+					num6.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+50), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
+				case 7:
+					num7.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+50), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
+				case 8:
+					num8.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+50), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
+				case 9:
+					num9.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+50), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
 				}
-			default:
+			} else { // number i bigger then 10 
+				switch inv[i].Amnt / 10 { //most signigf=iashudant digits
+				case 0:
+					num0.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+44), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
+				case 1:
+					num1.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+44), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
+				case 2:
+					num2.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+44), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
+				case 3:
+					num3.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+44), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
+				case 4:
+					num4.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+44), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
+				case 5:
+					num5.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+44), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
+				case 6:
+					num6.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+44), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
+				case 7:
+					num7.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+44), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
+				case 8:
+					num8.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+44), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
+				case 9:
+					num9.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+44), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
+				}
+
+				switch inv[i].Amnt % 10  { // least signifiicant digits
+				case 0:
+					num0.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+56), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
+				case 1:
+					num1.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+56), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
+				case 2:
+					num2.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+56), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
+				case 3:
+					num3.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+56), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
+				case 4:
+					num4.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+56), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
+				case 5:
+					num5.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+56), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
+				case 6:
+					num6.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+56), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
+				case 7:
+					num7.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+56), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
+				case 8:
+					num8.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+56), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
+				case 9:
+					num9.Draw(draw, pixel.IM.Moved(pixel.V(float64((i*64)+56), 20)).ScaledXY(pixel.V(float64((i*64)+50), 20), pixel.V(1.25, 1.25)))
+				}
 			}
 		}
+		
+		switch gui {
+		case 0:
+		case 1:
+			lib.CraftGUI(&gui, &inv, asset, pixs, opics)
+		default:
+		}
+
 		draw.Draw(win)
 		win.Update()
 		//END RENDERING
